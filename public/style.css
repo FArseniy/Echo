@@ -112,6 +112,7 @@ button:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1
 .chat-message strong { display: block; margin-bottom: 4px; color: #9cf9da; font-size: .78rem; }
 .chat-message p { margin: 0; line-height: 1.48; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-message time { display: block; margin-top: 6px; color: #c6d1e8; font-size: .72rem; text-align: right; }
+.delivery-status { display: block; margin-top: 4px; color: #bfe8dc; font-size: .69rem; text-align: right; }
 .system-message { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin: 15px auto; color: #9da9ca; font-size: .78rem; text-align: center; }
 .system-message p { margin: 0; }
 .system-message time { color: #7884a8; font-size: .71rem; }
