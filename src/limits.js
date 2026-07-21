@@ -41,6 +41,7 @@ const connectionLimiter = createSlidingWindowLimiter({ limit: 30, windowMs: 60 *
 const joinLimiter = createSlidingWindowLimiter({ limit: 30, windowMs: 60 * 1000 });
 const resumeLimiter = createSlidingWindowLimiter({ limit: 20, windowMs: 60 * 1000 });
 const typingLimiter = createSlidingWindowLimiter({ limit: 16, windowMs: 3 * 1000 });
+const webRtcSignalLimiter = createSlidingWindowLimiter({ limit: 80, windowMs: 3 * 1000 });
 
 setInterval(() => {
   messageLimiter.cleanup();
@@ -49,6 +50,7 @@ setInterval(() => {
   joinLimiter.cleanup();
   resumeLimiter.cleanup();
   typingLimiter.cleanup();
+  webRtcSignalLimiter.cleanup();
 }, 60 * 1000).unref();
 
 module.exports = {
@@ -58,6 +60,7 @@ module.exports = {
   resumeLimiter,
   roomCreationLimiter,
   typingLimiter,
+  webRtcSignalLimiter,
   resetLimiters() {
     messageLimiter.reset();
     roomCreationLimiter.reset();
@@ -65,5 +68,6 @@ module.exports = {
     joinLimiter.reset();
     resumeLimiter.reset();
     typingLimiter.reset();
+    webRtcSignalLimiter.reset();
   },
 };
