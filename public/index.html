@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Echo — временный чат без регистрации" />
+    <title>Echo — временный чат</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="landing-page">
+      <header class="landing-header">
+        <a class="brand" href="/" aria-label="Echo, главная">ec<span>ho</span></a>
+        <span class="privacy-pill">Без регистрации</span>
+      </header>
+
+      <section class="hero">
+        <p class="eyebrow">Временный приватный разговор</p>
+        <h1>Комната, ссылка,<br />разговор.</h1>
+        <p class="intro-copy">Создайте комнату за минуту. Отправьте ссылку и PIN-код отдельно — всё исчезнет после закрытия комнаты или перезапуска сервера.</p>
+      </section>
+
+      <section class="temporary-notice" aria-label="О временном хранении">
+        <span aria-hidden="true">⌁</span>
+        <p><strong>Комнаты временные.</strong> У Echo нет аккаунтов и постоянной истории сообщений.</p>
+      </section>
+
+      <section class="action-grid" aria-label="Комнаты Echo">
+        <form id="create-room-form" class="card create-card" novalidate>
+          <div class="card-heading">
+            <p class="card-label">Новая комната</p>
+            <h2>Создать чат</h2>
+            <p>Укажите данные комнаты. PIN не добавляется в ссылку.</p>
+          </div>
+          <div class="field-grid">
+            <div class="field field-full">
+              <label for="create-name">Ваше временное имя</label>
+              <input id="create-name" name="name" type="text" maxlength="24" autocomplete="nickname" placeholder="Например, Анна" required />
+            </div>
+            <div class="field">
+              <label for="create-pin">PIN-код</label>
+              <input id="create-pin" name="pin" type="password" inputmode="numeric" minlength="4" maxlength="8" autocomplete="new-password" placeholder="4–8 цифр" required />
+            </div>
+            <div class="field">
+              <label for="create-confirm-pin">Подтвердите PIN</label>
+              <input id="create-confirm-pin" name="confirm-pin" type="password" inputmode="numeric" minlength="4" maxlength="8" autocomplete="new-password" placeholder="Повторите PIN" required />
+            </div>
+            <div class="field field-full">
+              <label for="create-max-participants">Максимум участников</label>
+              <input id="create-max-participants" name="max-participants" type="number" min="2" max="50" value="10" required />
+            </div>
+          </div>
+          <p class="form-error" id="create-error" aria-live="polite"></p>
+          <button type="submit">Создать комнату <span aria-hidden="true">→</span></button>
+        </form>
+
+        <form id="join-room-form" class="card join-card-home" novalidate>
+          <div class="card-heading">
+            <p class="card-label">Есть приглашение?</p>
+            <h2>Войти в комнату</h2>
+            <p>Введите код из ссылки. На следующем экране Echo запросит временное имя и PIN.</p>
+          </div>
+          <div class="field join-code-field">
+            <label for="join-code">Код комнаты</label>
+            <input id="join-code" name="code" type="text" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="A7K9X2B4" required />
+          </div>
+          <p class="form-error" id="join-error" aria-live="polite"></p>
+          <button class="button-secondary" type="submit">Продолжить <span aria-hidden="true">→</span></button>
+          <p class="card-footnote">Ни имя, ни PIN не сохраняются в браузере.</p>
+        </form>
+      </section>
+
+      <section class="invite-card" id="invite-card" hidden aria-live="polite">
+        <div>
+          <p class="card-label">Комната создана</p>
+          <h2>Код: <span id="created-room-code"></span></h2>
+          <p>Отправьте ссылку участникам, а PIN передайте отдельно.</p>
+        </div>
+        <div class="invite-link-row">
+          <label class="sr-only" for="invitation-url">Ссылка-приглашение</label>
+          <input id="invitation-url" type="text" readonly />
+          <button id="copy-invitation" type="button">Копировать ссылку</button>
+        </div>
+        <a class="open-room-link" id="open-created-room" href="/room.html">Открыть комнату →</a>
+      </section>
+    </main>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/index.js"></script>
+  </body>
+</html>

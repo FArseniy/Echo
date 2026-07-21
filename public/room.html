@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Временная комната Echo" />
+    <title>Комната · Echo</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="room-page">
+      <header class="room-header">
+        <a class="brand" href="/">ec<span>ho</span></a>
+        <div class="connection-state" id="connection-state" role="status">
+          <span class="status-dot"></span>
+          <span>Подключение…</span>
+        </div>
+      </header>
+
+      <section class="notice-panel" id="notice-panel" aria-live="polite" hidden></section>
+
+      <section class="join-card room-entry" id="join-panel" aria-labelledby="join-title">
+        <p class="card-label">Временная комната</p>
+        <h1 id="join-title">Войти в Echo</h1>
+        <p>Укажите имя и PIN-код. Echo не сохраняет PIN в браузере.</p>
+        <form id="room-join-form" novalidate>
+          <div class="field">
+            <label for="room-code-input">Код комнаты</label>
+            <input id="room-code-input" name="code" type="text" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="A7K9X2B4" required />
+          </div>
+          <div class="field">
+            <label for="participant-name-input">Ваше временное имя</label>
+            <input id="participant-name-input" name="name" type="text" maxlength="24" autocomplete="nickname" placeholder="Например, Илья" required />
+          </div>
+          <div class="field">
+            <label for="room-pin-input">PIN-код комнаты</label>
+            <input id="room-pin-input" name="pin" type="password" inputmode="numeric" minlength="4" maxlength="8" autocomplete="current-password" placeholder="4–8 цифр" required />
+          </div>
+          <p class="form-error" id="join-error" aria-live="polite"></p>
+          <button type="submit">Войти в комнату <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+
+      <section class="room-layout" id="room-layout" aria-label="Комната чата" hidden>
+        <aside class="participants-panel">
+          <div class="room-code-wrap">
+            <p class="card-label">Код комнаты</p>
+            <div class="room-code-row">
+              <strong id="room-code">—</strong>
+              <button class="icon-button" id="copy-room-link" type="button" aria-label="Копировать ссылку на комнату" title="Копировать ссылку">⧉</button>
+            </div>
+          </div>
+          <div class="identity-card">
+            <span class="identity-avatar" aria-hidden="true">●</span>
+            <div>
+              <small>Вы в комнате как</small>
+              <strong id="current-user-name">—</strong>
+            </div>
+          </div>
+          <div class="participants-heading">
+            <h2>Участники</h2>
+            <span id="participant-count">0</span>
+          </div>
+          <ul class="participant-list" id="participant-list"></ul>
+        </aside>
+
+        <section class="chat-panel">
+          <div class="chat-topbar">
+            <div>
+              <p class="card-label">Временная комната</p>
+              <h1 id="room-title">Комната</h1>
+            </div>
+            <div class="room-actions">
+              <div class="owner-controls" id="owner-controls" hidden aria-label="Панель владельца">
+                <button class="text-button" id="lock-room-button" type="button">Запретить вход</button>
+                <label class="limit-control" for="max-participants-input">Лимит
+                  <input id="max-participants-input" type="number" min="2" max="50" value="10" />
+                </label>
+                <button class="text-button" id="save-settings-button" type="button">Сохранить</button>
+                <button class="text-button" id="clear-history-button" type="button">Очистить</button>
+                <button class="text-button danger-button" id="close-room-button" type="button">Закрыть</button>
+              </div>
+              <button class="text-button leave-button" id="leave-button" type="button">Выйти</button>
+            </div>
+          </div>
+          <div class="messages" id="messages" aria-live="polite" aria-label="Сообщения комнаты"></div>
+          <div class="typing-indicator" id="typing-indicator" role="status" aria-live="polite"></div>
+          <form class="message-form" id="message-form">
+            <label class="sr-only" for="message-input">Сообщение</label>
+            <input id="message-input" type="text" maxlength="2000" placeholder="Напишите сообщение…" disabled />
+            <button type="submit" disabled>Отправить</button>
+          </form>
+          <p class="form-error message-error" id="message-error" aria-live="polite"></p>
+        </section>
+      </section>
+    </main>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/chat.js"></script>
+  </body>
+</html>
