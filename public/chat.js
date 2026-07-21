@@ -189,46 +189,239 @@ function showJoinError(message) {
 }
 
 function showMessageError(message) {
-  me۽<��$z{-���jם};
-  }
-  return { valid: true, value: maxParticipants };
+  messageError.textContent = message;
+  showNotice(message);
 }
 
-function validateJoinRoom(payload) {
-  const input = asObject(payload);
-  const code = normaliseRoomCode(input.code);
-  const nameResult = validateName(input.name);
-  const pinResult = validatePin(input.pin);
-
-  if (!ROOM_CODE_PATTERN.test(code)) {
-    return { valid: false, message: 'Код комнаты должен состоять из 8 допустимых символов.' };
-  }
-
-  if (!nameResult.valid) return nameResult;
-  if (!pinResult.valid) return pinResult;
-
-  return { valid: true, data: { code, name: nameResult.value, pin: pinResult.value } };
+function prepareForRejoin(message) {
+  hasJoinedRoom = false;
+  needsRejoin = true;
+  resumeInFlight = false;
+  selfParticipantId = null;
+  isCurrentOwner = false;
+  typingUsers.clear();
+  renderTyping();
+  window.clearTimeout(typingTimer);
+  isTyping = false;
+  messageInput.disabled = true;
+  messageButton.disabled = true;
+  ownerControls.hidden = true;
+  roomLayout.hidden = true;
+  joinPanel.hidden = false;
+  joinError.textContent = message;
+  pinInput.value = '';
 }
 
-function validateMessage(payload) {
-  const input = asObject(payload);
-  const text = typeof input.text === 'string' ? input.text.trim() : '';
-
-  if (!text) return { valid: false, message: 'Сообщение не может быть пустым.' };
-  if (Array.from(text).length > MAX_MESSAGE_LENGTH) {
-    return { valid: false, message: `Сообщение не должно быть длиннее ${MAX_MESSAGE_LENGTH} символов.` };
-  }
-
-  return { valid: true, data: { text } };
+function returnToHome() {
+  socket.disconnect();
+  window.location.assign('/');
 }
 
-module.exports = {
-  asObject,
-  MAX_PARTICIPANTS,
-  MIN_PARTICIPANTS,
-  normaliseRoomCode,
-  validateCreateRoom,
-  validateJoinRoom,
-  validateMaxParticipants,
-  validateMessage,
-};
+joinForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (!socket.connected) {
+    showJoinError('Нет соединения с сервером. Попробуйте ещё раз.');
+    return;
+  }
+
+  joinError.textContent = '';
+  socket.emit('join-room', {
+    code: codeInput.value.trim().toUpperCase(),
+    name: nameInput.value.trim(),
+    pin: pinInput.value,
+  });
+  pinInput.value = '';
+});
+
+socket.on('connect', () => {
+  setConnectionState('Подключено', 'is-connected');
+  if (!hasJoinedRoom && attemptSessionResume()) {
+    if (needsRejoin) joinError.textContent = 'Восстанавливаем соединение…';
+    return;
+  }
+  if (needsRejoin) {
+    joinError.textContent = 'Соединение восстановлено. Введите PIN-код ещё раз.';
+    pinInput.focus();
+  }
+});
+
+socket.on('disconnect', () => {
+  resumeInFlight = false;
+  setConnectionState('Соединение потеряно', 'is-disconnected');
+  if (!isLeaving && hasJoinedRoom) {
+    prepareForRejoin('Соединение потеряно. После восстановления введите PIN-код ещё раз.');
+  }
+});
+
+socket.on('connect_error', () => {
+  setConnectionState('Не удалось подключиться', 'is-disconnected');
+  if (!hasJoinedRoom) joinError.textContent = 'Не удалось подключиться к серверу. Повторяем попытку…';
+});
+
+function enterRoom({ room, participants, messages: history, selfParticipantId: selfId, sessionToken }) {
+  selfParticipantId = selfId;
+  hasJoinedRoom = true;
+  needsRejoin = false;
+  resumeInFlight = false;
+  saveSession(room.code, sessionToken);
+  isCurrentOwner = room.isOwner;
+  roomCodeElement.textContent = room.code;
+  currentUserName.textContent = participants.find((participant) => participant.id === selfId)?.name || 'Вы';
+  roomTitleElement.textContent = `Комната ${room.code}`;
+  document.title = `Комната ${room.code} · Echo`;
+  renderParticipants(participants);
+  renderMessages(history);
+  joinPanel.hidden = true;
+  roomLayout.hidden = false;
+  ownerControls.hidden = !isCurrentOwner;
+  maxParticipantsInput.value = room.maxParticipants;
+  lockRoomButton.textContent = room.isLocked ? 'Разрешить вход' : 'Запретить вход';
+  messageInput.disabled = false;
+  messageButton.disabled = false;
+  messageInput.focus();
+}
+
+socket.on('room-joined', enterRoom);
+socket.on('session-resumed', enterRoom);
+
+socket.on('session-invalid', ({ message }) => {
+  clearSession(requestedCode || codeInput.value);
+  resumeInFlight = false;
+  if (hasJoinedRoom) {
+    prepareForRejoin(message);
+    return;
+  }
+  joinError.textContent = message;
+  pinInput.focus();
+});
+
+socket.on('room-not-found', ({ message }) => showJoinError(message));
+socket.on('invalid-pin', ({ message, attemptsRemaining }) => {
+  showJoinError(`${message} Осталось попыток: ${attemptsRemaining}.`);
+});
+socket.on('too-many-attempts', ({ message, retryAfter }) => {
+  const retryTime = retryAfter ? new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' }).format(retryAfter) : null;
+  showJoinError(retryTime ? `${message} Повторите после ${retryTime}.` : message);
+});
+socket.on('room-full', ({ message }) => showJoinError(message));
+socket.on('name-taken', ({ message }) => showJoinError(message));
+socket.on('chat-error', ({ action, message }) => {
+  if (action === 'send-message') showMessageError(message);
+  else if (action === 'join-room') showJoinError(message);
+  else showMessageError(message);
+});
+socket.on('participants-updated', renderParticipants);
+socket.on('participant-joined', ({ message }) => appendMessage(message));
+socket.on('participant-left', ({ participant }) => {
+  typingUsers.delete(participant.id);
+  renderTyping();
+});
+socket.on('owner-changed', ({ owner }) => {
+  if (owner.id === selfParticipantId) {
+    isCurrentOwner = true;
+    ownerControls.hidden = false;
+    renderParticipants(currentParticipants);
+  }
+});
+socket.on('new-message', appendMessage);
+socket.on('users-typing', ({ users = [] }) => {
+  typingUsers.clear();
+  users.forEach(({ id, name }) => {
+    if (id !== selfParticipantId) typingUsers.set(id, name);
+  });
+  renderTyping();
+});
+socket.on('chat-cleared', ({ message }) => renderMessages([message]));
+socket.on('room-settings-updated', ({ isLocked, maxParticipants }) => {
+  maxParticipantsInput.value = maxParticipants;
+  lockRoomButton.textContent = isLocked ? 'Разрешить вход' : 'Запретить вход';
+});
+socket.on('participant-kicked', ({ message }) => {
+  isLeaving = true;
+  updateTyping(false);
+  clearSession(roomCodeElement.textContent);
+  messageInput.disabled = true;
+  messageButton.disabled = true;
+  showMessageError(message);
+  window.setTimeout(returnToHome, 1400);
+});
+socket.on('room-closed', ({ message }) => {
+  if (isLeaving) return;
+  isLeaving = true;
+  updateTyping(false);
+  clearSession(roomCodeElement.textContent);
+  messageInput.disabled = true;
+  messageButton.disabled = true;
+  showMessageError(`${message || 'Комната закрыта.'} Вы будете перенаправлены на главную страницу.`);
+  window.setTimeout(returnToHome, 1400);
+});
+
+messageForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (!socket.connected || messageInput.disabled) return;
+
+  messageError.textContent = '';
+  socket.emit('send-message', { text: messageInput.value });
+  messageInput.value = '';
+  window.clearTimeout(typingTimer);
+  updateTyping(false);
+});
+
+messageInput.addEventListener('input', () => {
+  const hasText = Boolean(messageInput.value.trim());
+  updateTyping(hasText);
+  window.clearTimeout(typingTimer);
+  if (hasText) {
+    typingTimer = window.setTimeout(() => updateTyping(false), 1200);
+  }
+});
+
+copyRoomLinkButton.addEventListener('click', async () => {
+  const link = `${window.location.origin}/room.html?room=${encodeURIComponent(roomCodeElement.textContent)}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    copyRoomLinkButton.textContent = '✓';
+    showNotice('Ссылка на комнату скопирована.', 'info');
+  } catch {
+    showNotice('Не удалось скопировать ссылку. Скопируйте её из адресной строки.');
+  }
+  window.setTimeout(() => { copyRoomLinkButton.textContent = '⧉'; }, 1600);
+});
+
+clearHistoryButton.addEventListener('click', () => {
+  socket.emit('clear-chat');
+});
+
+lockRoomButton.addEventListener('click', () => {
+  socket.emit(lockRoomButton.textContent === 'Запретить вход' ? 'lock-room' : 'unlock-room');
+});
+
+saveSettingsButton.addEventListener('click', () => {
+  socket.emit('update-room-settings', { maxParticipants: maxParticipantsInput.value });
+});
+
+closeRoomButton.addEventListener('click', () => {
+  if (window.confirm('Закрыть комнату? Сообщения станут недоступны.')) {
+    socket.emit('close-room');
+  }
+});
+
+leaveButton.addEventListener('click', () => {
+  if (isLeaving) return;
+  isLeaving = true;
+  updateTyping(false);
+  clearSession(roomCodeElement.textContent);
+  messageInput.disabled = true;
+  messageButton.disabled = true;
+
+  if (!socket.connected) {
+    returnToHome();
+    return;
+  }
+
+  const fallback = window.setTimeout(returnToHome, 700);
+  socket.emit('leave-room', () => {
+    window.clearTimeout(fallback);
+    returnToHome();
+  });
+});
