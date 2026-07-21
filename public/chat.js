@@ -12,6 +12,11 @@ const typingUsers = new Map();
 let typingTimer;
 let isTyping = false;
 let resumeInFlight = false;
+let transportConfig = { enabled: false, iceServers: [] };
+let messageSigningKey = null;
+const peers = new Map();
+const renderedMessageIds = new Set();
+const outgoingDeliveries = new Map();
 
 const connectionState = document.querySelector('#connection-state');
 const joinPanel = document.querySelector('#join-panel');
@@ -41,6 +46,8 @@ const copyRoomLinkButton = document.querySelector('#copy-room-link');
 const currentUserName = document.querySelector('#current-user-name');
 const typingIndicator = document.querySelector('#typing-indicator');
 const noticePanel = document.querySelector('#notice-panel');
+const connectionModeTitle = document.querySelector('#connection-mode-title');
+const connectionModeDescription = document.querySelector('#connection-mode-description');
 
 codeInput.value = requestedCode;
 
@@ -88,6 +95,264 @@ function setConnectionState(text, stateClass) {
   connectionState.lastElementChild.textContent = text;
 }
 
+function closePeer(participantId) {
+  const peer = peers.get(participantId);
+  if (!peer) return;
+  peer.channel?.close();
+  peer.connection.close();
+  peers.delete(participantId);
+}
+
+function closeAllPeers() {
+  Array.from(peers.keys()).forEach(closePeer);
+  renderTransportMode();
+}
+
+function renderTransportMode() {
+  const remoteCount = Math.max(0, currentParticipants.length - 1);
+  const connectedPeers = Array.from(peers.values()).filter((peer) => peer.channel?.readyState === 'open');
+  const directCount = connectedPeers.filter((peer) => peer.route === 'direct').length;
+  const turnCount = connectedPeers.filter((peer) => peer.route === 'turn').length;
+  const serverCount = Math.max(0, remoteCount - directCount - turnCount);
+
+  if (!hasJoinedRoom || !transportConfig.enabled || !window.RTCPeerConnection || !messageSigningKey) {
+    connectionModeTitle.textContent = 'Через сервер';
+    connectionModeDescription.textContent = 'Socket.IO: прямой WebRTC-канал недоступен.';
+    return;
+  }
+
+  if (directCount > 0) {
+    connectionModeTitle.textContent = 'P2P напрямую';
+  } else if (turnCount > 0) {
+    connectionModeTitle.textContent = 'P2P через TURN';
+  } else {
+    connectionModeTitle.textContent = 'Через сервер';
+  }
+
+  connectionModeDescription.textContent = `Прямых: ${directCount} · TURN: ${turnCount} · сервер: ${serverCount}`;
+}
+
+function messagePayload(message) {
+  return [message.id, message.senderId, message.senderName, String(message.createdAt), message.text].join('\n');
+}
+
+function decodeBase64(value) {
+  const binary = window.atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function configureMessageVerification(transport) {
+  transportConfig = transport && typeof transport === 'object' ? transport : { enabled: false, iceServers: [] };
+  messageSigningKey = null;
+
+  if (!transportConfig.enabled || !transportConfig.messageSigningPublicKey || !window.crypto?.subtle) {
+    renderTransportMode();
+    return;
+  }
+
+  try {
+    messageSigningKey = await window.crypto.subtle.importKey(
+      'jwk',
+      transportConfig.messageSigningPublicKey,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify'],
+    );
+  } catch {
+    transportConfig = { enabled: false, iceServers: [] };
+  }
+
+  renderTransportMode();
+}
+
+async function verifyDirectMessage(message, signature) {
+  if (!messageSigningKey || typeof signature !== 'string' || !message || message.type !== 'user') return false;
+  if (typeof message.text !== 'string' || !message.text.trim() || message.text.length > 2000) return false;
+
+  try {
+    return await window.crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      messageSigningKey,
+      decodeBase64(signature),
+      new TextEncoder().encode(messagePayload(message)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function detectPeerRoute(peer) {
+  try {
+    const stats = await peer.connection.getStats();
+    for (const report of stats.values()) {
+      if (report.type !== 'candidate-pair' || !(report.selected || report.nominated)) continue;
+      const candidate = stats.get(report.localCandidateId);
+      peer.route = candidate?.candidateType === 'relay' ? 'turn' : 'direct';
+      break;
+    }
+  } catch {
+    peer.route = 'unknown';
+  }
+  renderTransportMode();
+}
+
+function sendPeerPacket(peer, packet) {
+  if (peer?.channel?.readyState !== 'open') return false;
+  try {
+    peer.channel.send(JSON.stringify(packet));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function handlePeerPacket(peer, rawPacket) {
+  if (typeof rawPacket !== 'string' || rawPacket.length > 8_192) return;
+
+  let packet;
+  try {
+    packet = JSON.parse(rawPacket);
+  } catch {
+    return;
+  }
+
+  if (packet?.type === 'delivery-receipt' && typeof packet.messageId === 'string') {
+    markMessageDelivered(packet.messageId, peer.participant.id);
+    return;
+  }
+
+  if (packet?.type !== 'message' || packet.message?.senderId !== peer.participant.id || packet.message?.senderName !== peer.participant.name) return;
+  if (!await verifyDirectMessage(packet.message, packet.signature)) return;
+
+  appendMessage(packet.message);
+  sendPeerPacket(peer, { type: 'delivery-receipt', messageId: packet.message.id });
+}
+
+function configureDataChannel(peer, channel) {
+  peer.channel = channel;
+  channel.onopen = () => { detectPeerRoute(peer); };
+  channel.onclose = () => { renderTransportMode(); };
+  channel.onerror = () => { renderTransportMode(); };
+  channel.onmessage = (event) => { handlePeerPacket(peer, event.data); };
+}
+
+function createPeer(participant) {
+  if (!participant || participant.id === selfParticipantId || peers.has(participant.id)) return peers.get(participant.id) || null;
+  if (!transportConfig.enabled || !messageSigningKey || !window.RTCPeerConnection) return null;
+
+  const connection = new RTCPeerConnection({ iceServers: transportConfig.iceServers || [] });
+  const peer = {
+    participant,
+    connection,
+    channel: null,
+    route: 'unknown',
+    makingOffer: false,
+    polite: String(selfParticipantId) > String(participant.id),
+    pendingCandidates: [],
+  };
+
+  connection.onicecandidate = ({ candidate }) => {
+    if (!candidate || !hasJoinedRoom) return;
+    socket.emit('webrtc-ice-candidate', {
+      targetParticipantId: participant.id,
+      candidate: candidate.toJSON ? candidate.toJSON() : candidate,
+    });
+  };
+  connection.ondatachannel = ({ channel }) => configureDataChannel(peer, channel);
+  connection.onconnectionstatechange = () => {
+    if (['failed', 'closed'].includes(connection.connectionState)) closePeer(participant.id);
+    else renderTransportMode();
+  };
+  peers.set(participant.id, peer);
+  renderTransportMode();
+  return peer;
+}
+
+async function startOffer(participant) {
+  if (!participant || String(selfParticipantId) >= String(participant.id)) return;
+  const peer = createPeer(participant);
+  if (!peer || peer.connection.signalingState !== 'stable') return;
+
+  try {
+    peer.makingOffer = true;
+    configureDataChannel(peer, peer.connection.createDataChannel('echo-message'));
+    await peer.connection.setLocalDescription(await peer.connection.createOffer());
+    socket.emit('webrtc-offer', { targetParticipantId: participant.id, description: peer.connection.localDescription });
+  } catch {
+    closePeer(participant.id);
+  } finally {
+    peer.makingOffer = false;
+  }
+}
+
+function connectToParticipants(participants) {
+  participants.forEach(startOffer);
+}
+
+async function applyPendingCandidates(peer) {
+  while (peer.pendingCandidates.length > 0) {
+    const candidate = peer.pendingCandidates.shift();
+    try { await peer.connection.addIceCandidate(candidate); } catch { /* The peer will use the server fallback. */ }
+  }
+}
+
+async function handleWebRtcOffer({ fromParticipantId, description }) {
+  const participant = currentParticipants.find((item) => item.id === fromParticipantId);
+  if (!participant || !description) return;
+  const peer = createPeer(participant);
+  if (!peer) return;
+
+  try {
+    const collision = peer.makingOffer || peer.connection.signalingState !== 'stable';
+    if (collision && !peer.polite) return;
+    if (collision) await peer.connection.setLocalDescription({ type: 'rollback' });
+    await peer.connection.setRemoteDescription(description);
+    await applyPendingCandidates(peer);
+    await peer.connection.setLocalDescription(await peer.connection.createAnswer());
+    socket.emit('webrtc-answer', { targetParticipantId: participant.id, description: peer.connection.localDescription });
+  } catch {
+    closePeer(participant.id);
+  }
+}
+
+async function handleWebRtcAnswer({ fromParticipantId, description }) {
+  const peer = peers.get(fromParticipantId);
+  if (!peer || !description) return;
+  try {
+    await peer.connection.setRemoteDescription(description);
+    await applyPendingCandidates(peer);
+  } catch {
+    closePeer(fromParticipantId);
+  }
+}
+
+async function handleWebRtcCandidate({ fromParticipantId, candidate }) {
+  const peer = peers.get(fromParticipantId);
+  if (!peer || !candidate) return;
+  if (!peer.connection.remoteDescription) {
+    peer.pendingCandidates.push(candidate);
+    return;
+  }
+  try { await peer.connection.addIceCandidate(candidate); } catch { /* The peer will use the server fallback. */ }
+}
+
+function updateDeliveryStatus(messageId) {
+  const state = outgoingDeliveries.get(messageId);
+  const status = messages.querySelector(`[data-delivery-for="${messageId}"]`);
+  if (!state || !status) return;
+  status.textContent = state.expected.size === 0
+    ? 'Нет получателей'
+    : `Доставлено ${state.delivered.size} из ${state.expected.size}`;
+}
+
+function markMessageDelivered(messageId, participantId) {
+  const state = outgoingDeliveries.get(messageId);
+  if (!state || !state.expected.has(participantId)) return;
+  state.delivered.add(participantId);
+  if (state.delivered.size === state.expected.size) window.clearTimeout(state.fallbackTimer);
+  updateDeliveryStatus(messageId);
+}
+
 function renderParticipants(participants) {
   currentParticipants = participants;
   participantCount.textContent = String(participants.length);
@@ -115,6 +380,7 @@ function renderParticipants(participants) {
     }
     participantList.append(item);
   });
+  renderTransportMode();
 }
 
 function showNotice(message, type = 'error') {
@@ -149,6 +415,8 @@ function formatTime(timestamp) {
 }
 
 function appendMessage(message) {
+  if (message?.id && renderedMessageIds.has(message.id)) return null;
+  if (message?.id) renderedMessageIds.add(message.id);
   messages.querySelector('.empty-chat')?.remove();
   const item = document.createElement('article');
   item.className = message.type === 'system' ? 'system-message' : 'chat-message';
@@ -162,15 +430,26 @@ function appendMessage(message) {
     const sender = document.createElement('strong');
     sender.textContent = message.senderName;
     item.append(sender, text, time);
+    if (message.senderId === selfParticipantId) {
+      const delivery = document.createElement('span');
+      delivery.className = 'delivery-status';
+      delivery.dataset.deliveryFor = message.id;
+      if (!outgoingDeliveries.has(message.id)) delivery.textContent = 'Доставка не отслеживается';
+      item.append(delivery);
+      updateDeliveryStatus(message.id);
+    }
   } else {
     item.append(text, time);
   }
   messages.append(item);
+  if (message.type === 'user' && message.senderId === selfParticipantId) updateDeliveryStatus(message.id);
   messages.scrollTop = messages.scrollHeight;
+  return item;
 }
 
 function renderMessages(history) {
   messages.replaceChildren();
+  renderedMessageIds.clear();
   if (history.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-chat';
@@ -200,6 +479,7 @@ function prepareForRejoin(message) {
   selfParticipantId = null;
   isCurrentOwner = false;
   typingUsers.clear();
+  closeAllPeers();
   renderTyping();
   window.clearTimeout(typingTimer);
   isTyping = false;
@@ -258,7 +538,8 @@ socket.on('connect_error', () => {
   if (!hasJoinedRoom) joinError.textContent = 'Не удалось подключиться к серверу. Повторяем попытку…';
 });
 
-function enterRoom({ room, participants, messages: history, selfParticipantId: selfId, sessionToken }) {
+async function enterRoom({ room, participants, messages: history, selfParticipantId: selfId, sessionToken, transport }) {
+  closeAllPeers();
   selfParticipantId = selfId;
   hasJoinedRoom = true;
   needsRejoin = false;
@@ -279,6 +560,8 @@ function enterRoom({ room, participants, messages: history, selfParticipantId: s
   messageInput.disabled = false;
   messageButton.disabled = false;
   messageInput.focus();
+  await configureMessageVerification(transport);
+  connectToParticipants(participants);
 }
 
 socket.on('room-joined', enterRoom);
@@ -311,11 +594,16 @@ socket.on('chat-error', ({ action, message }) => {
   else showMessageError(message);
 });
 socket.on('participants-updated', renderParticipants);
-socket.on('participant-joined', ({ message }) => appendMessage(message));
+socket.on('participant-joined', ({ participant, message }) => {
+  appendMessage(message);
+  startOffer(participant);
+});
 socket.on('participant-left', ({ participant }) => {
   typingUsers.delete(participant.id);
+  closePeer(participant.id);
   renderTyping();
 });
+socket.on('participant-reconnected', ({ participant }) => startOffer(participant));
 socket.on('owner-changed', ({ owner }) => {
   if (owner.id === selfParticipantId) {
     isCurrentOwner = true;
@@ -324,6 +612,34 @@ socket.on('owner-changed', ({ owner }) => {
   }
 });
 socket.on('new-message', appendMessage);
+socket.on('webrtc-offer', handleWebRtcOffer);
+socket.on('webrtc-answer', handleWebRtcAnswer);
+socket.on('webrtc-ice-candidate', handleWebRtcCandidate);
+socket.on('p2p-message-prepared', ({ message, signature }) => {
+  if (!message || typeof signature !== 'string') return;
+  const expected = new Set(currentParticipants.filter((participant) => participant.id !== selfParticipantId).map((participant) => participant.id));
+  const deliveryState = { expected, delivered: new Set(), fallbackTimer: null };
+  outgoingDeliveries.set(message.id, deliveryState);
+  appendMessage(message);
+
+  const relayTargets = [];
+  expected.forEach((participantId) => {
+    const peer = peers.get(participantId);
+    if (!sendPeerPacket(peer, { type: 'message', message, signature })) relayTargets.push(participantId);
+  });
+  if (relayTargets.length > 0) socket.emit('p2p-relay-message', { messageId: message.id, targetParticipantIds: relayTargets });
+  deliveryState.fallbackTimer = window.setTimeout(() => {
+    const undelivered = Array.from(deliveryState.expected).filter((participantId) => !deliveryState.delivered.has(participantId));
+    if (undelivered.length > 0) socket.emit('p2p-relay-message', { messageId: message.id, targetParticipantIds: undelivered });
+  }, 3500);
+  updateDeliveryStatus(message.id);
+});
+socket.on('p2p-relay-message', ({ message }) => {
+  if (!message) return;
+  appendMessage(message);
+  socket.emit('p2p-delivery-received', { messageId: message.id });
+});
+socket.on('message-delivery-update', ({ messageId, participantId }) => markMessageDelivered(messageId, participantId));
 socket.on('users-typing', ({ users = [] }) => {
   typingUsers.clear();
   users.forEach(({ id, name }) => {
@@ -361,7 +677,7 @@ messageForm.addEventListener('submit', (event) => {
   if (!socket.connected || messageInput.disabled) return;
 
   messageError.textContent = '';
-  socket.emit('send-message', { text: messageInput.value });
+  socket.emit('p2p-prepare-message', { text: messageInput.value });
   messageInput.value = '';
   window.clearTimeout(typingTimer);
   updateTyping(false);
