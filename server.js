@@ -28,6 +28,10 @@ function createEchoServer({ publicUrl, allowedOrigin } = {}) {
   const resolvedPublicUrl = (publicUrl || process.env.PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
   const resolvedAllowedOrigin = (allowedOrigin || process.env.CLIENT_ORIGIN || process.env.ALLOWED_ORIGIN || resolvedPublicUrl).replace(/\/$/, '');
   const websocketOrigin = resolvedAllowedOrigin.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+  const turnHost = String(process.env.TURN_HOST || '').trim();
+  const turnSources = turnHost
+    ? [`stun:${turnHost}:3478`, `turn:${turnHost}:3478`, `turns:${turnHost}:5349`]
+    : [];
   const isAllowedOrigin = (origin) => typeof origin === 'string' && origin === resolvedAllowedOrigin;
   const allowedHosts = new Set([
     new URL(resolvedPublicUrl).host,
@@ -81,7 +85,7 @@ function createEchoServer({ publicUrl, allowedOrigin } = {}) {
     contentSecurityPolicy: {
       directives: {
         baseUri: ["'self'"],
-        connectSrc: ["'self'", websocketOrigin],
+        connectSrc: ["'self'", websocketOrigin, ...turnSources],
         defaultSrc: ["'self'"],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
