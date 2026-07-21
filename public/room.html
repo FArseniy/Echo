@@ -50,12 +50,12 @@
               <button class="icon-button" id="copy-room-link" type="button" aria-label="Копировать ссылку на комнату" title="Копировать ссылку">⧉</button>
             </div>
           </div>
-          <div class="connection-mode" aria-label="Режим связи: через сервер">
+          <div class="connection-mode" id="connection-mode" aria-live="polite" aria-label="Режим связи">
             <span class="connection-mode-icon" aria-hidden="true">↔</span>
             <div>
               <small>Режим связи</small>
-              <strong>Через сервер</strong>
-              <p>Socket.IO · P2P не используется</p>
+              <strong id="connection-mode-title">Подключение…</strong>
+              <p id="connection-mode-description">Проверяем доступность прямого канала.</p>
             </div>
           </div>
           <div class="identity-card">
