@@ -29,6 +29,19 @@ function createEchoServer({ publicUrl, allowedOrigin } = {}) {
   const resolvedAllowedOrigin = (allowedOrigin || process.env.CLIENT_ORIGIN || process.env.ALLOWED_ORIGIN || resolvedPublicUrl).replace(/\/$/, '');
   const websocketOrigin = resolvedAllowedOrigin.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
   const isAllowedOrigin = (origin) => typeof origin === 'string' && origin === resolvedAllowedOrigin;
+  const allowedHosts = new Set([
+    new URL(resolvedPublicUrl).host,
+    new URL(resolvedAllowedOrigin).host,
+  ]);
+
+  // Browsers may omit Origin for a same-origin Engine.IO request. In that case
+  // accepting only the configured Host preserves same-origin access without
+  // opening the endpoint to arbitrary cross-origin browser requests.
+  const isAllowedHandshakeOrigin = (request) => {
+    const origin = request.headers.origin;
+    if (typeof origin === 'string' && origin) return isAllowedOrigin(origin);
+    return typeof request.headers.host === 'string' && allowedHosts.has(request.headers.host);
+  };
   const maxSocketPacketBytes = readPositiveInteger('MAX_SOCKET_PACKET_BYTES', 10 * 1024, { min: 1024, max: 1024 * 1024 });
 
   const io = new Server(server, {
@@ -42,8 +55,20 @@ function createEchoServer({ publicUrl, allowedOrigin } = {}) {
     },
     allowRequest(request, callback) {
       const isHandshake = !new URL(request.url, 'http://localhost').searchParams.has('sid');
+      const originAllowed = isAllowedHandshakeOrigin(request);
       const allowedByRateLimit = !isHandshake || connectionLimiter.consume(getRequestAddress(request)).allowed;
-      callback(null, isAllowedOrigin(request.headers.origin) && allowedByRateLimit);
+
+      if (!originAllowed || !allowedByRateLimit) {
+        // Origin and rejection category are safe operational metadata. Never log
+        // packet payloads, PINs, session tokens, messages, or IP addresses here.
+        console.warn('[echo]', JSON.stringify({
+          event: 'socket-handshake-rejected',
+          reason: originAllowed ? 'rate-limit' : 'origin',
+          origin: typeof request.headers.origin === 'string' ? request.headers.origin : null,
+        }));
+      }
+
+      callback(null, originAllowed && allowedByRateLimit);
     },
   });
 
