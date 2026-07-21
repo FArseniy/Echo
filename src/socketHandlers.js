@@ -18,7 +18,10 @@ const {
   resumeLimiter,
   roomCreationLimiter,
   typingLimiter,
+  webRtcSignalLimiter,
 } = require('./limits');
+const { getWebRtcConfiguration } = require('./turnCredentials');
+const { getMessageSigningPublicKey, signMessage } = require('./messageSigner');
 const {
   bindSession,
   getSession,
@@ -44,6 +47,7 @@ const PIN_BLOCK_MS = readPositiveInteger('PIN_BLOCK_MINUTES', 5, { min: 1, max: 
 const PIN_ATTEMPT_WINDOW_MS = PIN_BLOCK_MS;
 const MAX_ACTIVE_ROOMS = 1000;
 const pinAttempts = new Map();
+const pendingRelayDeliveries = new Map();
 
 function getClientAddress(socket) {
   const realIp = socket.handshake.headers['x-real-ip'];
@@ -117,7 +121,10 @@ function cleanupPinAttempts() {
   }
 }
 
-setInterval(cleanupPinAttempts, 60 * 1000).unref();
+setInterval(() => {
+  cleanupPinAttempts();
+  cleanupPendingRelayDeliveries();
+}, 60 * 1000).unref();
 
 function clearPinAttemptsForRoom(roomCode) {
   const suffix = `:${roomCode}`;
@@ -155,6 +162,60 @@ function findParticipantById(room, participantId) {
 function getOwnedRoom(socket) {
   const room = getRoom(socket.data.roomCode);
   return room && room.ownerSocketId === socket.id ? room : null;
+}
+
+function getRoomMember(socket) {
+  const room = getRoom(socket.data.roomCode);
+  const participant = room?.participants.get(socket.id);
+  return room && participant ? { room, participant } : null;
+}
+
+function getRoomSnapshotWithTransport(room, socketId) {
+  return {
+    ...getRoomSnapshot(room, socketId),
+    transport: {
+      ...getWebRtcConfiguration(),
+      messageSigningPublicKey: getMessageSigningPublicKey(),
+    },
+  };
+}
+
+function getTargetParticipant(room, participantId) {
+  if (typeof participantId !== 'string' || participantId.length > 64) return null;
+  return findParticipantById(room, participantId);
+}
+
+function getStoredUserMessage(room, messageId) {
+  if (typeof messageId !== 'string' || messageId.length > 64) return null;
+  return room.messages.find((message) => message.id === messageId && message.type === 'user') || null;
+}
+
+function clearPendingRelaysForRoom(roomCode) {
+  for (const [messageId, state] of pendingRelayDeliveries) {
+    if (state.roomCode === roomCode) pendingRelayDeliveries.delete(messageId);
+  }
+}
+
+function cleanupPendingRelayDeliveries() {
+  const now = Date.now();
+  for (const [messageId, state] of pendingRelayDeliveries) {
+    if (state.expiresAt <= now || state.recipientSocketIds.size === 0) pendingRelayDeliveries.delete(messageId);
+  }
+}
+
+function relayWebRtcSignal(socket, event, payload, valueKey) {
+  const { targetParticipantId, [valueKey]: value } = asObject(payload);
+  const member = getRoomMember(socket);
+  if (!member || !webRtcSignalLimiter.consume(socket.id).allowed) return;
+
+  const target = getTargetParticipant(member.room, targetParticipantId);
+  const targetSocket = target && socket.server.sockets.sockets.get(target.socketId);
+  if (!targetSocket || target.socketId === socket.id) return;
+
+  targetSocket.emit(event, {
+    fromParticipantId: member.participant.id,
+    [valueKey]: value,
+  });
 }
 
 function sendAdminError(socket, action) {
@@ -369,7 +430,7 @@ function registerSocketHandlers(io, { publicUrl }) {
       const sessionToken = issueSocketSession(room, participant, socket);
       const systemMessage = addSystemMessage(room, `${participant.name} присоединился к комнате.`);
 
-      socket.emit('room-joined', { ...getRoomSnapshot(room, socket.id), sessionToken });
+      socket.emit('room-joined', { ...getRoomSnapshotWithTransport(room, socket.id), sessionToken });
       socket.to(room.code).emit('participant-joined', { participant, message: systemMessage });
       sendParticipants(io, room);
     });
@@ -415,7 +476,8 @@ function registerSocketHandlers(io, { publicUrl }) {
       socket.data.sessionTokenHash = sessionResult.tokenHash;
       room.lastActivityAt = Date.now();
       bindSession(sessionResult.tokenHash, socket.id);
-      socket.emit('session-resumed', getRoomSnapshot(room, socket.id));
+      socket.emit('session-resumed', getRoomSnapshotWithTransport(room, socket.id));
+      socket.to(room.code).emit('participant-reconnected', { participant });
       sendParticipants(io, room);
       sendTypingUsers(io, room);
     });
@@ -525,8 +587,97 @@ function registerSocketHandlers(io, { publicUrl }) {
 
       revokeRoomSessions(room.code);
       clearPinAttemptsForRoom(room.code);
+      clearPendingRelaysForRoom(room.code);
       closeRoom(room);
       io.in(room.code).disconnectSockets(true);
+    });
+
+    on(socket, 'webrtc-offer', (payload) => {
+      const { description } = asObject(payload);
+      if (!description || description.type !== 'offer' || typeof description.sdp !== 'string' || description.sdp.length > 12_000) return;
+      relayWebRtcSignal(socket, 'webrtc-offer', payload, 'description');
+    });
+
+    on(socket, 'webrtc-answer', (payload) => {
+      const { description } = asObject(payload);
+      if (!description || description.type !== 'answer' || typeof description.sdp !== 'string' || description.sdp.length > 12_000) return;
+      relayWebRtcSignal(socket, 'webrtc-answer', payload, 'description');
+    });
+
+    on(socket, 'webrtc-ice-candidate', (payload) => {
+      const { candidate } = asObject(payload);
+      if (candidate !== null && (!candidate || typeof candidate.candidate !== 'string' || candidate.candidate.length > 4_096)) return;
+      relayWebRtcSignal(socket, 'webrtc-ice-candidate', payload, 'candidate');
+    });
+
+    on(socket, 'p2p-prepare-message', (payload) => {
+      const validation = validateMessage(payload);
+      const member = getRoomMember(socket);
+      if (!validation.valid || !member) {
+        socket.emit('chat-error', { action: 'send-message', message: validation.message || 'Сначала войдите в комнату, чтобы отправлять сообщения.' });
+        return;
+      }
+
+      const messageAttempt = messageLimiter.consume(socket.id);
+      if (!messageAttempt.allowed) {
+        safeLog('message-rate-limited', socket);
+        socket.emit('chat-error', {
+          action: 'send-message',
+          code: 'message-rate-limit',
+          message: 'Слишком много сообщений. Подождите несколько секунд.',
+          retryAfter: messageAttempt.retryAfter,
+        });
+        return;
+      }
+
+      const message = addUserMessage(member.room, {
+        senderId: member.participant.id,
+        senderName: member.participant.name,
+        text: validation.data.text,
+      });
+      socket.emit('p2p-message-prepared', { message, signature: signMessage(message) });
+    });
+
+    on(socket, 'p2p-relay-message', (payload) => {
+      const { messageId, targetParticipantIds } = asObject(payload);
+      const member = getRoomMember(socket);
+      if (!member || !Array.isArray(targetParticipantIds) || targetParticipantIds.length > member.room.participants.size) return;
+
+      const message = getStoredUserMessage(member.room, messageId);
+      if (!message || message.senderId !== member.participant.id) return;
+
+      const recipientSocketIds = new Set();
+      for (const participantId of new Set(targetParticipantIds)) {
+        const target = getTargetParticipant(member.room, participantId);
+        if (!target || target.socketId === socket.id) continue;
+        const targetSocket = socket.server.sockets.sockets.get(target.socketId);
+        if (!targetSocket) continue;
+        recipientSocketIds.add(target.socketId);
+        targetSocket.emit('p2p-relay-message', { message });
+      }
+
+      if (recipientSocketIds.size > 0) {
+        const pending = pendingRelayDeliveries.get(message.id) || {
+          roomCode: member.room.code,
+          senderSocketId: socket.id,
+          recipientSocketIds: new Set(),
+          expiresAt: 0,
+        };
+        recipientSocketIds.forEach((socketId) => pending.recipientSocketIds.add(socketId));
+        pending.expiresAt = Date.now() + 2 * 60 * 1000;
+        pendingRelayDeliveries.set(message.id, pending);
+      }
+    });
+
+    on(socket, 'p2p-delivery-received', (payload) => {
+      const { messageId } = asObject(payload);
+      const member = getRoomMember(socket);
+      const pending = pendingRelayDeliveries.get(messageId);
+      if (!member || !pending || pending.roomCode !== member.room.code || !pending.recipientSocketIds.delete(socket.id)) return;
+
+      const senderSocket = socket.server.sockets.sockets.get(pending.senderSocketId);
+      senderSocket?.emit('message-delivery-update', { messageId, participantId: member.participant.id });
+      if (pending.recipientSocketIds.size === 0) pendingRelayDeliveries.delete(messageId);
     });
 
     on(socket, 'send-message', (payload) => {
