@@ -1,25 +1,25 @@
 # Echo
 
-[Р СѓСЃСЃРєР°СЏ РІРµСЂСЃРёСЏ](README.ru.md)
+[Русская версия](README.ru.md)
 
 Echo is a temporary registration-free chat. Rooms, messages, PIN hashes, sessions and temporary counters live only in server memory and disappear after a restart or room deletion.
 
 ```text
              HTTPS / WSS
-Browser в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв–є Nginx в”Ђв”Ђв”Ђв”Ђв”Ђв–є Echo (Express + Socket.IO)
-  в”‚                            в”‚                    в”‚
-  в”‚  sessionStorage:           в”‚                    в”њв”Ђ rooms (memory)
-  в”‚  short-lived token         в”‚                    в”њв”Ђ messages (memory)
-  в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ґв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ґв”Ђ PIN hashes (bcrypt)
+Browser ───────────────────► Nginx ─────► Echo (Express + Socket.IO)
+  │                            │                    │
+  │  sessionStorage:           │                    ├─ rooms (memory)
+  │  short-lived token         │                    ├─ messages (memory)
+  └────────────────────────────┴────────────────────┴─ PIN hashes (bcrypt)
 
-No accounts В· No database В· No permanent message history
+No accounts · No database · No permanent message history
 ```
 
 ## What Echo protects
 
 | Area | Implementation |
 | --- | --- |
-| Room PIN | 4вЂ“8 digits, `bcrypt` hash only; never included in a URL or storage |
+| Room PIN | 4–8 digits, `bcrypt` hash only; never included in a URL or storage |
 | Sessions | Random, room-bound, short-lived token stored only in `sessionStorage` |
 | XSS | Client data is rendered with `textContent`; Helmet CSP blocks injected scripts |
 | Socket.IO | Strict origin check, packet-size limit, server-owned room membership and roles |
@@ -30,19 +30,19 @@ No accounts В· No database В· No permanent message history
 
 ```text
 mini-chat/
-в”њв”Ђв”Ђ .env.example
-в”њв”Ђв”Ђ .gitignore
-в”њв”Ђв”Ђ package.json
-в”њв”Ђв”Ђ server.js
-в”њв”Ђв”Ђ public/
-в”њв”Ђв”Ђ src/
-в”њв”Ђв”Ђ test/
-в”њв”Ђв”Ђ vitest.config.js
-в””в”Ђв”Ђ deploy/
-    в”њв”Ђв”Ђ mini-chat.service
-    в”њв”Ђв”Ђ mini-chat-hardening.conf
-    в””в”Ђв”Ђ nginx/
-        в””в”Ђв”Ђ echo.erised.click.conf
+├── .env.example
+├── .gitignore
+├── package.json
+├── server.js
+├── public/
+├── src/
+├── test/
+├── vitest.config.js
+└── deploy/
+    ├── mini-chat.service
+    ├── mini-chat-hardening.conf
+    └── nginx/
+        └── echo.erised.click.conf
 ```
 
 `.env` is intentionally listed in `.gitignore`. Do not commit it, copy it into a public archive, or put secrets in it. The current app has no persistent secret; it does contain the exact public URL and operating limits.
@@ -163,7 +163,7 @@ curl -i -H 'Origin: https://echo.erised.click' \
   'https://echo.erised.click/socket.io/?EIO=4&transport=polling'
 ```
 
-The first command returns `{"status":"ok"}`, the second redirects to HTTPS, and the third returns a Socket.IO handshake plus the exact `Access-Control-Allow-Origin` value. Finally open two browser windows, create a room in one, join it from the other and verify a `wss://.../socket.io/` connection in browser Developer Tools (Network в†’ WS). This confirms an actual upgraded WebSocket, not only HTTP polling.
+The first command returns `{"status":"ok"}`, the second redirects to HTTPS, and the third returns a Socket.IO handshake plus the exact `Access-Control-Allow-Origin` value. Finally open two browser windows, create a room in one, join it from the other and verify a `wss://.../socket.io/` connection in browser Developer Tools (Network → WS). This confirms an actual upgraded WebSocket, not only HTTP polling.
 
 ## Production checklist
 
