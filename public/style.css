@@ -64,7 +64,8 @@ button:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1
 /* Once a room is open, the browser page stays fixed. Only the room panels
    and the message feed may scroll, so a long conversation never extends the page. */
 body.room-active { height: 100dvh; overflow: hidden; }
-body.room-active .room-page { display: grid; height: 100dvh; min-height: 0; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
+body.room-active .room-page { display: flex; height: 100dvh; min-height: 0; flex-direction: column; overflow: hidden; }
+body.room-active .room-header, body.room-active .notice-panel { flex: 0 0 auto; }
 .connection-state { display: inline-flex; align-items: center; gap: 8px; color: #b9c3e3; font-size: .84rem; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #e4b557; }
 .connection-state.is-connected .status-dot { background: #66e2a1; box-shadow: 0 0 10px #66e2a1; }
@@ -79,7 +80,7 @@ body.room-active .room-page { display: grid; height: 100dvh; min-height: 0; grid
 .room-entry form > button { margin-top: 8px; }
 
 .room-layout { display: grid; min-height: calc(100vh - 100px); grid-template-columns: 270px minmax(0, 1fr); overflow: hidden; border: 1px solid rgba(255,255,255,.13); border-radius: 22px; background: rgba(18, 23, 45, .91); }
-body.room-active .room-layout { height: 100%; min-height: 0; }
+body.room-active .room-layout { flex: 1 1 auto; height: auto; min-height: 0; }
 .participants-panel { padding: 22px; border-right: 1px solid rgba(255,255,255,.1); background: rgba(8, 13, 28, .4); }
 body.room-active .participants-panel { min-height: 0; overflow-y: auto; }
 .room-code-wrap strong { color: #fff; font-size: 1.5rem; letter-spacing: .09em; }
@@ -104,6 +105,7 @@ body.room-active .participants-panel { min-height: 0; overflow-y: auto; }
 .kick-button { min-height: 30px; padding: 4px 8px; border: 1px solid #795269; background: transparent; color: #ffc1c7; font-size: .72rem; }
 
 .chat-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
+body.room-active .chat-panel { position: relative; }
 .chat-topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 21px 25px; border-bottom: 1px solid rgba(255,255,255,.1); }
 .chat-topbar h1 { margin: 4px 0 0; font-size: 1.3rem; letter-spacing: -.04em; }
 .room-actions, .owner-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px 12px; }
@@ -128,6 +130,8 @@ body.room-active .participants-panel { min-height: 0; overflow-y: auto; }
 .message-form input { flex: 1; }
 .message-form button { flex: 0 0 auto; }
 .message-error { padding: 0 25px 14px; }
+body.room-active .message-form { position: relative; z-index: 2; }
+body.room-active .message-error { position: absolute; right: 0; bottom: 68px; left: 0; z-index: 3; min-height: 0; margin: 0; padding: 6px 25px; pointer-events: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
 @media (max-width: 820px) {
