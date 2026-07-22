@@ -84,6 +84,7 @@ button:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1
 .connection-mode small { display: block; color: #b8c8df; font-size: .72rem; }
 .connection-mode strong { display: block; margin-top: 2px; color: #d7f7ec; font-size: .88rem; }
 .connection-mode p { margin: 3px 0 0; color: #a9d8c8; font-size: .72rem; line-height: 1.35; }
+.safety-code { margin-top: 8px !important; padding-top: 8px; border-top: 1px solid rgba(142,245,210,.22); color: #f3fff9 !important; font-weight: 800; letter-spacing: .05em; }
 .identity-card { display: flex; align-items: center; gap: 10px; margin: 26px 0; padding: 11px; border-radius: 13px; background: #202848; }
 .identity-avatar { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: #8ef5d2; color: #153e36; font-size: .65rem; }
 .identity-card small { display: block; color: #abb5d5; font-size: .72rem; }
