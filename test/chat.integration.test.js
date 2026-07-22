@@ -38,6 +38,9 @@ async function createRoom(owner, { name = 'Creator', pin = PIN, maxParticipants 
     pin,
     confirmPin: pin,
     maxParticipants,
+    // Group mode is the server-backed mode these integration tests exercise.
+    // The browser always supplies it from the creation form as well.
+    transportMode: 'group-server',
   }, 'room-created');
 }
 
