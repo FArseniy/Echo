@@ -1,45 +1,61 @@
-# Echo
+# echo
 
-Временный чат без регистрации: создайте комнату, передайте ссылку и PIN отдельно, общайтесь и закройте комнату, когда разговор закончен.
+> A temporary room. A private link. A conversation that leaves when you do.
+
+[Open Echo](https://echo.erised.click/) В· [Design system](DESIGN_SYSTEM.md) В· [Environment reference](.env.example)
 
 ```text
-        ссылка + PIN
-  ┌────────────────────┐
-  │       Echo         │
-  │  временная комната │
-  └────────────────────┘
-     ↙              ↘
-  P2P приватно    группа через сервер
+                         E C H O
+              temporary conversations by link
+
+          в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ room в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ
+          в”‚                                  в”‚
+          в”‚     create  в”Ђв”Ђ share в”Ђв”Ђ talk     в”‚
+          в”‚                                  в”‚
+          в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”
+                    в”‚                  в”‚
+              private P2P         group room
+             browser в†” browser    via Echo server
 ```
 
-## Три режима комнаты
+Echo is a no-registration chat for a quick conversation. Create a room, share its link and PIN separately, then close the room when the conversation is over. No accounts. No permanent profiles. No persistent chat history.
 
-| Режим | Участники | Как идут сообщения | История |
-| --- | ---: | --- | --- |
-| Приватный P2P | ровно 2 | напрямую между браузерами | нет |
-| Приватный P2P + TURN | ровно 2 | напрямую; TURN — резервный зашифрованный маршрут | нет |
-| Групповой через сервер | 2–20 (настраивается) | Socket.IO через Echo | в памяти до закрытия комнаты |
+## Choose the route
 
-В приватных режимах Echo участвует только во входе в комнату, списке участников и обмене WebRTC-сигналами. Текст сообщений не отправляется в Node.js, не попадает в серверную историю и не проходит через Socket.IO. TURN при необходимости передаёт только уже зашифрованный WebRTC-трафик.
+| Mode | Best for | Message path | History |
+| --- | --- | --- | --- |
+| **Private P2P** | Two people on a direct connection | Browser в†” browser | Not stored |
+| **Private P2P + TURN** | Two people who may need a fallback relay | Direct first; encrypted TURN relay if required | Not stored |
+| **Group via server** | Rooms with several people | Socket.IO through Echo | Memory only, until the room closes |
 
-### Дополнительная защита P2P
+### Private means private
 
-Помимо встроенного шифрования WebRTC (DTLS), браузеры создают одноразовые ключи ECDH P-256 только в оперативной памяти и шифруют каждое сообщение AES-256-GCM. Для обоих участников выводится одинаковый код проверки: его следует сравнить по независимому каналу, например голосом.
+In private P2P modes, Echo is used for the room entry flow, participant list and WebRTC signalling only. Message text is not relayed through Node.js, Socket.IO or Echo's temporary history.
 
-Это защищает содержимое от Echo и TURN, но не делает общение анонимным: при прямом P2P собеседник может увидеть сетевой адрес другого собеседника. Для скрытия адреса потребуется отдельный режим `relay-only` через TURN.
+WebRTC already encrypts transport. Echo additionally creates ephemeral ECDH P-256 keys in the browser and encrypts messages with AES-256-GCM. Participants can compare the displayed safety code outside the chat.
 
-## Возможности
+> Direct P2P is not anonymous: the other participant may be able to see your network address. TURN is a relay fallback, not an anonymity guarantee.
 
-- комнаты с 8-символьным кодом и PIN из 4–8 цифр;
-- bcrypt-хеширование PIN, без PIN в URL, `localStorage` и логах;
-- временные имена, список участников и передача роли владельца;
-- сообщения, индикатор набора, `✓`/`✓✓` доставки;
-- восстановление краткой сессии через `sessionStorage`;
-- лимиты сообщений, попыток PIN и создания комнат;
-- автоматическое удаление пустых и неактивных комнат;
-- Helmet, строгий Origin для Socket.IO, HTTPS и WebSocket через Nginx.
+## What is included
 
-## Запуск
+- 8-character room codes and 4вЂ“8 digit PINs;
+- bcrypt PIN hashing вЂ” no PIN in URLs, `localStorage` or server logs;
+- temporary names, presence list and owner handoff;
+- real-time messaging, typing indicator and `вњ“` / `вњ“вњ“` delivery state;
+- short session recovery with `sessionStorage`;
+- PIN, message and room-creation rate limits;
+- automatic cleanup of empty and inactive rooms;
+- Helmet, strict Socket.IO origin checks, HTTPS and WebSocket-ready Nginx setup.
+
+## Part of the erised tools
+
+Need to share a screen as well? Try [Mirrised](https://mirror.erised.click/).  
+Looking for the main project space? Visit [erised.click](https://www.erised.click/).
+
+---
+
+<details>
+<summary><strong>Run Echo locally</strong></summary>
 
 ```bash
 cp .env.example .env
@@ -47,33 +63,31 @@ npm install
 npm start
 ```
 
-Откройте `http://localhost:3000`. Для production используйте Nginx перед приложением и заполните реальные значения `PUBLIC_URL`, `CLIENT_ORIGIN`, `TURN_HOST` и `TURN_SHARED_SECRET` в `.env`.
+Open `http://localhost:3000`.
 
-## Важные переменные окружения
+</details>
 
-```dotenv
-PORT=3000
-PUBLIC_URL=https://echo.example.com
-CLIENT_ORIGIN=https://echo.example.com
-TURN_HOST=trans.example.com
-TURN_SHARED_SECRET=replace-with-a-secret
-MAX_ROOM_PARTICIPANTS=20
-MAX_MESSAGE_LENGTH=2000
-ROOM_TTL_MINUTES=360
-EMPTY_ROOM_TTL_MINUTES=10
-PIN_ATTEMPT_LIMIT=5
-PIN_BLOCK_MINUTES=5
+<details>
+<summary><strong>Production notes</strong></summary>
+
+- Put Nginx with HTTPS and WebSocket proxying in front of the app.
+- Set `PUBLIC_URL`, `CLIENT_ORIGIN`, `TURN_HOST` and `TURN_SHARED_SECRET` in `.env`.
+- Never commit `.env`, TURN credentials, room PINs or session tokens.
+- Confirm `/healthz` returns `{"status":"ok"}` after deployment.
+
+</details>
+
+<details>
+<summary><strong>Useful commands</strong></summary>
+
+```bash
+npm start
+npm run dev
+npm test
 ```
 
-Не публикуйте `.env`, ключ TURN, PIN-коды и токены сессий.
+</details>
 
-## Проверка перед публикацией
+---
 
-```text
-[ ] HTTPS и WSS доступны
-[ ] /healthz отвечает {"status":"ok"}
-[ ] CLIENT_ORIGIN совпадает с публичным доменом
-[ ] открыты TCP/UDP-порты TURN и диапазон relay-портов
-[ ] приватный P2P показывает одинаковый код проверки у обоих участников
-[ ] групповое сообщение получает ✓✓ после приёма другим браузером
-```
+Built with Node.js, Express, Socket.IO, WebRTC and vanilla JavaScript.
