@@ -2,20 +2,20 @@
 
 > A temporary room. A private link. A conversation that leaves when you do.
 
-[Open Echo](https://echo.erised.click/) В· [Design system](DESIGN_SYSTEM.md) В· [Environment reference](.env.example)
+[Open Echo](https://echo.erised.click/) | [Design system](DESIGN_SYSTEM.md) | [Environment reference](.env.example)
 
 ```text
                          E C H O
               temporary conversations by link
 
-          в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ room в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ
-          в”‚                                  в”‚
-          в”‚     create  в”Ђв”Ђ share в”Ђв”Ђ talk     в”‚
-          в”‚                                  в”‚
-          в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”
-                    в”‚                  в”‚
+          +-------------- room --------------+
+          |                                  |
+          |     create -- share -- talk      |
+          |                                  |
+          +----------------------------------+
+                    |                  |
               private P2P         group room
-             browser в†” browser    via Echo server
+             browser <-> browser   via Echo server
 ```
 
 Echo is a no-registration chat for a quick conversation. Create a room, share its link and PIN separately, then close the room when the conversation is over. No accounts. No permanent profiles. No persistent chat history.
@@ -24,7 +24,7 @@ Echo is a no-registration chat for a quick conversation. Create a room, share it
 
 | Mode | Best for | Message path | History |
 | --- | --- | --- | --- |
-| **Private P2P** | Two people on a direct connection | Browser в†” browser | Not stored |
+| **Private P2P** | Two people on a direct connection | Browser to browser | Not stored |
 | **Private P2P + TURN** | Two people who may need a fallback relay | Direct first; encrypted TURN relay if required | Not stored |
 | **Group via server** | Rooms with several people | Socket.IO through Echo | Memory only, until the room closes |
 
@@ -34,14 +34,14 @@ In private P2P modes, Echo is used for the room entry flow, participant list and
 
 WebRTC already encrypts transport. Echo additionally creates ephemeral ECDH P-256 keys in the browser and encrypts messages with AES-256-GCM. Participants can compare the displayed safety code outside the chat.
 
-> Direct P2P is not anonymous: the other participant may be able to see your network address. TURN is a relay fallback, not an anonymity guarantee.
+> Note: direct P2P is not anonymous. The other participant may be able to see your network address. TURN is a relay fallback, not an anonymity guarantee.
 
 ## What is included
 
-- 8-character room codes and 4вЂ“8 digit PINs;
-- bcrypt PIN hashing вЂ” no PIN in URLs, `localStorage` or server logs;
+- 8-character room codes and 4-8 digit PINs;
+- bcrypt PIN hashing -- no PIN in URLs, `localStorage` or server logs;
 - temporary names, presence list and owner handoff;
-- real-time messaging, typing indicator and `вњ“` / `вњ“вњ“` delivery state;
+- real-time messaging, typing indicator and sent/delivered state;
 - short session recovery with `sessionStorage`;
 - PIN, message and room-creation rate limits;
 - automatic cleanup of empty and inactive rooms;
