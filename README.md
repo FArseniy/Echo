@@ -2,7 +2,7 @@
 
 > A temporary room. A private link. A conversation that leaves when you do.
 
-[Open Echo](https://echo.erised.click/) | [Design system](DESIGN_SYSTEM.md) | [Environment reference](.env.example)
+[Open Echo](https://echo.erised.click/) | [Russian README](README.ru.md) | [Design system](DESIGN_SYSTEM.md) | [Environment reference](.env.example)
 
 ```text
                          E C H O
