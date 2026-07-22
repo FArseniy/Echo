@@ -59,6 +59,17 @@ button:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1
 .invite-link-row input { flex: 1; }
 .invite-link-row button { flex: 0 0 auto; }
 .open-room-link { color: #8ef5d2; font-weight: 800; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.site-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 38px; padding: 20px 0 8px; border-top: 1px solid rgba(255,255,255,.12); }
+.github-link, .mirror-link { display: inline-flex; align-items: center; gap: 10px; min-height: 46px; border-radius: 12px; font-weight: 800; text-decoration: none; }
+.github-link { padding: 10px 12px; color: #d8def4; }
+.github-link:hover { background: rgba(255,255,255,.07); color: #fff; }
+.github-link svg { width: 22px; height: 22px; fill: currentColor; }
+.mirror-link { min-width: min(100%, 330px); padding: 9px 14px; border: 1px solid rgba(142,245,210,.42); background: linear-gradient(100deg, rgba(29,105,91,.66), rgba(36,59,108,.67)); color: #f4fffb; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+.mirror-link:hover { border-color: #8ef5d2; transform: translateY(-2px); }
+.mirror-link strong, .mirror-link small { display: block; }
+.mirror-link small { margin-top: 2px; color: #c4e5dc; font-size: .74rem; font-weight: 600; }
+.live-dot { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; background: #8ef5d2; box-shadow: 0 0 12px #8ef5d2; }
+.mirror-arrow { margin-left: auto; color: #8ef5d2; font-size: 1.35rem; }
 
 .room-page { min-height: 100vh; padding: 22px 0; }
 /* Once a room is open, the browser page stays fixed. Only the room panels
@@ -158,6 +169,8 @@ body.room-active .message-error { position: absolute; right: 0; bottom: 68px; le
   .invite-card { padding: 20px; }
   .invite-link-row { flex-direction: column; }
   .invite-link-row button { width: 100%; }
+  .site-footer { align-items: stretch; flex-direction: column; }
+  .github-link, .mirror-link { width: 100%; }
   .chat-topbar, .messages, .message-form { padding-right: 16px; padding-left: 16px; }
   .typing-indicator, .message-error { padding-right: 16px; padding-left: 16px; }
   .chat-topbar { gap: 11px; }
